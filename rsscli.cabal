@@ -86,6 +86,7 @@ executable rsscli
                      , RecursiveDo
                      , NumDecimals
                      , BinaryLiterals
+                     , LambdaCase
 
   -- Other library packages from which modules are imported.
   build-depends:       base ==4.12.*
