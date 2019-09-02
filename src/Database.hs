@@ -299,6 +299,8 @@ openDatabase path = handleException handleFormatError
        handleRSSError BadFormatMetadata     = CorruptDB
 
 closeDatabase :: Database -> IO ()
-closeDatabase = close . conn
+closeDatabase (DB _ c) = do
+    execute_ c "DELETE FROM rss_item WHERE deleted = 1"
+    close c
 
 
