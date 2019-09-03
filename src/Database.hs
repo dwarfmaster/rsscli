@@ -103,12 +103,12 @@ isFormatError = isJust . convert . toException
  where convert :: SomeException -> Maybe FormatError
        convert = fromException
 
---   ___       _ _   
---  |_ _|_ __ (_) |_ 
---   | || '_ \| | __|
---   | || | | | | |_ 
---  |___|_| |_|_|\__|
---                   
+--   ___       _ _    ----------------------------------------------------------
+--  |_ _|_ __ (_) |_  ----------------------------------------------------------
+--   | || '_ \| | __| ----------------------------------------------------------
+--   | || | | | | |_  ----------------------------------------------------------
+--  |___|_| |_|_|\__| ----------------------------------------------------------
+--                    ----------------------------------------------------------
 
 -- | Represent a row in the @metadata@ table 
 data VersionRow = VersionR
@@ -298,9 +298,76 @@ openDatabase path = handleException handleFormatError
        handleRSSError NoVersion             = CorruptDB
        handleRSSError BadFormatMetadata     = CorruptDB
 
+-- | Close a database after removing all items with delete = 1
 closeDatabase :: Database -> IO ()
 closeDatabase (DB _ c) = do
     execute_ c "DELETE FROM rss_item WHERE deleted = 1"
     close c
+
+
+--   _____             _  ------------------------------------------------------
+--  |  ___|__  ___  __| | ------------------------------------------------------
+--  | |_ / _ \/ _ \/ _` | ------------------------------------------------------
+--  |  _|  __/  __/ (_| | ------------------------------------------------------
+--  |_|  \___|\___|\__,_| ------------------------------------------------------
+--                        ------------------------------------------------------
+
+-- | Represents a row in the rss_feed table
+data FeedRow = FeedR
+             { feedRssurl   :: Text    -- ^ Correspond to the @rssurl@ column
+             , feedUrl      :: Text    -- ^ Correspond to the @url@ column
+             , feedTitle    :: Text    -- ^ Correspond to the @title@ column
+             , lastModified :: Integer -- ^ Correspond to the @lastmodified@ column (TODO better type)
+             , feedIsRtl    :: Bool    -- ^ Correspond to the @is_rtl@ column
+             , feedEtag     :: Text    -- ^ Correspond to the @etag@ column
+             } deriving (Show,Eq)
+
+instance FromRow FeedRow where
+    fromRow = FeedR <$> field <*> field <*> field <*> field <*> field <*> field
+instance ToRow FeedRow where
+    toRow (FeedR rssurl url title lastm rtl etag) = toRow (rssurl, url, title, lastm, rtl, etag)
+
+-- | Look for a feed based on its rssurl in a database
+findFeed :: Database           -- ^ The database to look on
+         -> Text               -- ^ The rssurl to look for
+         -> IO (Maybe FeedRow) -- ^ Nothing if the feed couldn't be found, true otherwise
+findFeed db rssurl =
+    query (conn db) "SELECT * FROM rss_feed WHERE rssurl = ? LIMIT 1" (Only rssurl) >>= \case
+        []  -> return Nothing
+        f:_ -> return $ Just f
+
+-- | List all feeds in the database
+listFeeds :: Database -> IO [FeedRow]
+listFeeds db = query_ (conn db) "SELECT * FROM rss_feed"
+
+-- | Udpdate a feed or if it doesn't exists create it
+updateFeed :: Database -- ^ The database to update
+           -> FeedRow  -- ^ The row to enter (its rssurl is used to find the row to update)
+           -> IO Bool  -- ^ True if the feed was created
+updateFeed db feed = findFeed db (feedRssurl feed) >>= \case
+    Just _ -> do
+        execute (conn db) "UPDATE rss_feed       \
+                          \SET url = ?,          \
+                          \    title = ?,        \
+                          \    lastmodified = ?, \
+                          \    is_rtl = ?,       \
+                          \    etag = ?          \
+                          \WHERE rssurl = ?"
+                ( feedUrl   feed, feedTitle feed, lastModified feed
+                , feedIsRtl feed, feedEtag  feed, feedRssurl   feed )
+        return False
+    Nothing -> do
+        execute (conn db) "INSERT INTO rss_feed VALUES (?, ?, ?, ?, ?, ?)"
+                ( feedRssurl   feed, feedUrl   feed, feedTitle feed
+                , lastModified feed, feedIsRtl feed, feedEtag  feed )
+        return True
+
+-- | Delete a feed from the database
+deleteFeed :: Database -- ^ The database to delete the feed from
+           -> Text     -- ^ The rssurl of the feed to delete
+           -> IO ()
+deleteFeed db rssurl =
+    execute (conn db) "DELETE FROM rss_feed WHERE rssurl = ?" $ Only rssurl
+
 
 
