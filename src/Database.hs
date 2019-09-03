@@ -77,14 +77,15 @@ The database follow the following schema :
 
 module Database where
 
-import           Prelude                        ()
+import           Prelude                         ()
 import           Relude
-import           Relude.String.Conversion       (toString)
-import           Database.SQLite.Simple         hiding (fold)
+import           Relude.String.Conversion        (toString)
+import           Database.SQLite.Simple          hiding (fold)
 import           Database.SQLite.Simple.FromRow
 import           Database.SQLite.Simple.ToRow
+import           Database.SQLite.Simple.ToField
 import           Control.Exception
-import           System.IO.Error                (isDoesNotExistError)
+import           System.IO.Error                 (isDoesNotExistError)
 import qualified Text.Show
 
 -- | A constraint alias for types that represent a SQL row
@@ -312,7 +313,7 @@ closeDatabase (DB _ c) = do
 --  |_|  \___|\___|\__,_| ------------------------------------------------------
 --                        ------------------------------------------------------
 
--- | Represents a row in the rss_feed table
+-- | Represents a row in the @rss_feed@ table
 data FeedRow = FeedR
              { feedRssurl   :: Text    -- ^ Correspond to the @rssurl@ column
              , feedUrl      :: Text    -- ^ Correspond to the @url@ column
@@ -370,4 +371,128 @@ deleteFeed db rssurl =
     execute (conn db) "DELETE FROM rss_feed WHERE rssurl = ?" $ Only rssurl
 
 
+
+
+--   ___ _                  ----------------------------------------------------
+--  |_ _| |_ ___ _ __ ___   ----------------------------------------------------
+--   | || __/ _ \ '_ ` _ \  ----------------------------------------------------
+--   | || ||  __/ | | | | | ----------------------------------------------------
+--  |___|\__\___|_| |_| |_| ----------------------------------------------------
+--                          ----------------------------------------------------
+
+-- | Represents a row in the @rss_item@ table
+data ItemRow = ItemR
+             { itemId            :: Integer    -- ^ Correspond to the @id@ column
+             , itemGuid          :: Text       -- ^ Correspond to the @guid@ column
+             , itemTitle         :: Text       -- ^ Correspond to the @title@ column
+             , itemAuthor        :: Text       -- ^ Correspond to the @author@ column
+             , itemUrl           :: Text       -- ^ Correspond to the @url@ column
+             , itemFeedurl       :: Text       -- ^ Correspond to the @feedurl@ column
+             , itemPubdate       :: Integer    -- ^ Correspond to the @pubDate@ column (TODO better type)
+             , itemContent       :: Text       -- ^ Correspond to the @content@ column
+             , itemUnread        :: Bool       -- ^ Correspond to the @unread@ column
+             , itemEnclosureUrl  :: Maybe Text -- ^ Correspond to the @enclosure_url@ column
+             , itemEnclosureType :: Maybe Text -- ^ Correspond to the @enclosure_type@ column
+             , itemEnqueued      :: Bool       -- ^ Correspond to the @enqueued@ column
+             , itemFlags         :: [ Char ]   -- ^ Correspond to the @flags@ column
+             , itemDeleted       :: Bool       -- ^ Correspond to the @deleted@ column
+             , itemBase          :: Text       -- ^ Correspond to the @base@ column
+             } deriving (Show,Eq)
+
+instance FromRow ItemRow where
+    fromRow = ItemR <$> field <*> field <*> field <*> field <*> field
+                    <*> field <*> field <*> field <*> field <*> field
+                    <*> field <*> field <*> field <*> field <*> field
+instance ToRow ItemRow where
+    toRow (ItemR id     guid title author   url   feedurl pubdate content
+                 unread eurl etype enqueued flags deleted base) =
+           toRow ( id,      guid,     title,   author,   url  )
+        <> toRow ( feedurl, pubdate,  content, unread,   eurl )
+        <> toRow ( etype,   enqueued, flags,   deleted,  base )
+
+-- | Create a 'NamedParam' list with all the content of an ItemRow
+itemNamed :: ItemRow -> [NamedParam]
+itemNamed (ItemR id   guid  title    author url     feedurl pubdate content unread
+                 eurl etype enqueued flags  deleted base) =
+    [ "id"     := id,     "guid"    := guid,    "title"   := title,   "author"   := author
+    , "url"    := url,    "feedurl" := feedurl, "pubdate" := pubdate, "content"  := content
+    , "unread" := unread, "eurl"    := eurl,    "etype"   := etype,   "enqueued" := enqueued
+    , "flags"  := flags,  "deleted" := deleted, "base"    := base ]
+
+-- | Get an item from its id
+getItemFromID :: Database -> Integer -> IO (Maybe ItemRow)
+getItemFromID db id =
+    query (conn db) "SELECT * FROM rss_item WHERE id = ?" (Only id) >>= \case
+        []  -> return Nothing
+        i:_ -> return $ Just i
+
+-- | Get an item from its guid
+getItemFromGUID :: Database -> Text -> IO (Maybe ItemRow)
+getItemFromGUID db guid =
+    query (conn db) "SELECT * FROM rss_item WHERE guid = ?" (Only guid) >>= \case
+        []  -> return Nothing
+        i:_ -> return $ Just i
+
+-- | List all the items of a specific feed
+listFeedItems :: Database
+              -> Text         -- ^ The rssurl of the feed
+              -> IO [Integer] -- ^ The ids of the items
+listFeedItems db rssurl =
+    query (conn db) "SELECT id FROM rss_item WHERE feedurl = ?" (Only rssurl) >>= (return . mconcat)
+
+-- | Update (or create if it is inexistent) an item
+--   If the item is created, the id of the item given will not be considered.
+updateItem :: Database
+           -> ItemRow
+           -> IO Integer -- ^ 0 if the item was updated or the new id if it was created
+updateItem db item = getItemFromID db (itemId item) >>= \case
+    Nothing -> do
+        executeNamed (conn db) "INSERT INTO rss_item \
+                               \VALUES ( null        \
+                               \       , :guid       \
+                               \       , :title      \
+                               \       , :author     \
+                               \       , :url        \
+                               \       , :feedurl    \
+                               \       , :pubdate    \
+                               \       , :content    \
+                               \       , :unread     \
+                               \       , :eurl       \
+                               \       , :etype      \
+                               \       , :enqueued   \
+                               \       , :flags      \
+                               \       , :deleted    \
+                               \       , :base       \
+                               \       )"
+                   $ itemNamed item
+        nids <- query_ (conn db) "SELECT last_insert_rowid()" :: IO [[Integer]]
+        case nids of
+          (nid:_):_ -> return nid
+          []        -> error "last_insert_rowid returned nothing, should NOT happen"
+    Just _  -> do
+        executeNamed (conn db) "UPDATE rss_item              \
+                               \SET guid = :guid,            \
+                               \    title = :title,          \
+                               \    author = :author,        \
+                               \    url = :url,              \
+                               \    feedurl = :feedurl,      \
+                               \    pubDate = :pubdate,      \
+                               \    content = :content,      \
+                               \    unread = :unread,        \
+                               \    enclosure_url = :eurl,   \
+                               \    enclosure_type = :etype, \
+                               \    enqueued = :enqueued,    \
+                               \    flags = :flags,          \
+                               \    deleted = :deleted,      \
+                               \    base = :base             \
+                               \WHERE id = :id"
+                   $ itemNamed item
+        return 0
+
+-- | Delete an item from the table (will do nothing if it doesn't exists)
+deleteItem :: Database
+           -> Integer  -- ^ The id of the item to delete
+           -> IO ()
+deleteItem db id =
+    execute (conn db) "DELETE FROM rss_item WHERE id = ?" $ Only id
 
