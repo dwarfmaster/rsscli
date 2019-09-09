@@ -104,6 +104,12 @@ isFormatError = isJust . convert . toException
  where convert :: SomeException -> Maybe FormatError
        convert = fromException
 
+-- | Filter named params list
+filterNP :: (Text -> Bool) -> [NamedParam] -> [NamedParam]
+filterNP pred = filter $ pred . getName
+ where getName :: NamedParam -> Text
+       getName (nm := _) = nm
+
 --   ___       _ _    ----------------------------------------------------------
 --  |_ _|_ __ (_) |_  ----------------------------------------------------------
 --   | || '_ \| | __| ----------------------------------------------------------
@@ -394,15 +400,21 @@ data ItemRow = ItemR
              , itemEnclosureUrl  :: Maybe Text -- ^ Correspond to the @enclosure_url@ column
              , itemEnclosureType :: Maybe Text -- ^ Correspond to the @enclosure_type@ column
              , itemEnqueued      :: Bool       -- ^ Correspond to the @enqueued@ column
-             , itemFlags         :: [ Char ]   -- ^ Correspond to the @flags@ column
+             , itemFlags         :: [Char]     -- ^ Correspond to the @flags@ column
              , itemDeleted       :: Bool       -- ^ Correspond to the @deleted@ column
              , itemBase          :: Text       -- ^ Correspond to the @base@ column
              } deriving (Show,Eq)
 
+flags :: RowParser [Char]
+flags = mkLst <$> field
+ where mkLst :: Maybe [Char] -> [Char]
+       mkLst Nothing  = []
+       mkLst (Just x) = x
+
 instance FromRow ItemRow where
     fromRow = ItemR <$> field <*> field <*> field <*> field <*> field
                     <*> field <*> field <*> field <*> field <*> field
-                    <*> field <*> field <*> field <*> field <*> field
+                    <*> field <*> field <*> flags <*> field <*> field
 instance ToRow ItemRow where
     toRow (ItemR id     guid title author   url   feedurl pubdate content
                  unread eurl etype enqueued flags deleted base) =
@@ -414,10 +426,10 @@ instance ToRow ItemRow where
 itemNamed :: ItemRow -> [NamedParam]
 itemNamed (ItemR id   guid  title    author url     feedurl pubdate content unread
                  eurl etype enqueued flags  deleted base) =
-    [ "id"     := id,     "guid"    := guid,    "title"   := title,   "author"   := author
-    , "url"    := url,    "feedurl" := feedurl, "pubdate" := pubdate, "content"  := content
-    , "unread" := unread, "eurl"    := eurl,    "etype"   := etype,   "enqueued" := enqueued
-    , "flags"  := flags,  "deleted" := deleted, "base"    := base ]
+    [ ":id"     := id,     ":guid"    := guid,    ":title"   := title,   ":author"   := author
+    , ":url"    := url,    ":feedurl" := feedurl, ":pubdate" := pubdate, ":content"  := content
+    , ":unread" := unread, ":eurl"    := eurl,    ":etype"   := etype,   ":enqueued" := enqueued
+    , ":flags"  := flags,  ":deleted" := deleted, ":base"    := base ]
 
 -- | Get an item from its id
 getItemFromID :: Database -> Integer -> IO (Maybe ItemRow)
@@ -464,7 +476,7 @@ updateItem db item = getItemFromID db (itemId item) >>= \case
                                \       , :deleted    \
                                \       , :base       \
                                \       )"
-                   $ itemNamed item
+                   $ filterNP (/= ":id") $ itemNamed item
         nids <- query_ (conn db) "SELECT last_insert_rowid()" :: IO [[Integer]]
         case nids of
           (nid:_):_ -> return nid
