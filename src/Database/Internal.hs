@@ -26,6 +26,8 @@ import           Control.Exception
 import           System.IO.Error                 (isDoesNotExistError)
 import qualified Text.Show
 
+-- * Misc
+
 -- | A constraint alias for types that represent a SQL row
 --   (ie have conversion in both directions)
 type RowAble a = (ToRow a, FromRow a)
@@ -42,6 +44,7 @@ filterNP pred = filter $ pred . getName
 --   | || | | | | |_  ----------------------------------------------------------
 --  |___|_| |_|_|\__| ----------------------------------------------------------
 --                    ----------------------------------------------------------
+-- * Initialisation
 
 instance FromRow VersionRow where
     fromRow = VersionR <$> field <*> field
@@ -178,6 +181,7 @@ closeDatabase (DB _ c) = do
 --  |  _|  __/  __/ (_| | ------------------------------------------------------
 --  |_|  \___|\___|\__,_| ------------------------------------------------------
 --                        ------------------------------------------------------
+-- * Feed handling
 
 instance FromRow FeedRow where
     fromRow = FeedR <$> field <*> field <*> field <*> field <*> field <*> field
@@ -235,6 +239,7 @@ deleteFeed db rssurl =
 --   | || ||  __/ | | | | | ----------------------------------------------------
 --  |___|\__\___|_| |_| |_| ----------------------------------------------------
 --                          ----------------------------------------------------
+-- * Item handling
 
 -- | Parse flags entry
 flags :: RowParser [Char]
