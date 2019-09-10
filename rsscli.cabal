@@ -57,6 +57,9 @@ executable rsscli
 
   -- Modules included in this executable, other than Main.
   other-modules:       Database
+                     , Database.Internal
+                     , Database.Errors
+                     , Database.Structure
 
   default-extensions:  OverloadedStrings
                      , TupleSections
