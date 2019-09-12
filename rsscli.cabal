@@ -60,6 +60,7 @@ executable rsscli
                      , Database.Internal
                      , Database.Errors
                      , Database.Structure
+                     , RSS
 
   default-extensions:  OverloadedStrings
                      , TupleSections
@@ -74,6 +75,7 @@ executable rsscli
                      , DeriveFoldable
                      , DeriveTraversable
                      , GeneralizedNewtypeDeriving
+                     , StandaloneDeriving
                      , MultiParamTypeClasses
                      , FunctionalDependencies
                      , NamedWildCards
@@ -90,6 +92,7 @@ executable rsscli
                      , NumDecimals
                      , BinaryLiterals
                      , LambdaCase
+                     , DeriveGeneric
 
   -- Other library packages from which modules are imported.
   build-depends:       base ==4.12.*
@@ -97,6 +100,7 @@ executable rsscli
                      , feed == 1.0.*
                      , download == 0.3.*
                      , sqlite-simple == 0.4.*
+                     , dhall == 1.19.*
 
   -- Directories containing source files.
   hs-source-dirs:      src
