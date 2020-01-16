@@ -101,6 +101,10 @@ executable rsscli
                      , download == 0.3.*
                      , sqlite-simple == 0.4.*
                      , dhall == 1.19.*
+                     , process == 1.6.*
+                     , bytestring == 0.10.*
+                     , mtl == 2.2.*
+                     , utf8-string == 1.0.*
 
   -- Directories containing source files.
   hs-source-dirs:      src
