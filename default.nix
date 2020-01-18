@@ -1,5 +1,6 @@
-{ mkDerivation, base, bytestring, dhall, download, feed, mtl
-, process, relude, sqlite-simple, stdenv, utf8-string
+{ mkDerivation, base, bytestring, dhall, exceptions, feed
+, http-client, http-client-tls, http-types, mtl, process, relude
+, sqlite-simple, stdenv, time, utf8-string
 }:
 mkDerivation {
   pname = "rsscli";
@@ -8,8 +9,8 @@ mkDerivation {
   isLibrary = false;
   isExecutable = true;
   executableHaskellDepends = [
-    base bytestring dhall download feed mtl process relude
-    sqlite-simple utf8-string
+    base bytestring dhall exceptions feed http-client http-client-tls
+    http-types mtl process relude sqlite-simple time utf8-string
   ];
   homepage = "https://github.com/lucas8/rsscli";
   description = "A newsboat compatible rss cli";

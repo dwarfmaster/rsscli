@@ -98,13 +98,17 @@ executable rsscli
   build-depends:       base ==4.12.*
                      , relude ==0.4.*
                      , feed == 1.0.*
-                     , download == 0.3.*
                      , sqlite-simple == 0.4.*
                      , dhall == 1.19.*
                      , process == 1.6.*
                      , bytestring == 0.10.*
                      , mtl == 2.2.*
                      , utf8-string == 1.0.*
+                     , time == 1.8.*
+                     , http-client == 0.5.*
+                     , http-client-tls == 0.3.*
+                     , http-types == 0.12.*
+                     , exceptions == 0.10.*
 
   -- Directories containing source files.
   hs-source-dirs:      src
