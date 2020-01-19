@@ -16,10 +16,13 @@ string.
 
 {-# LANGUAGE FlexibleContexts #-}
 
-module RSS where
+module RSS ( Feed(..), Item(..), Provider(..)
+           , readFeed
+           ) where
 
 import           Prelude                   ()
 import           Relude                    hiding (ByteString)
+import qualified Database                  as DB
 import           GHC.Generics
 import qualified Text.Show
 import qualified Text.Feed.Types           as Fd
@@ -52,29 +55,32 @@ import           Control.Monad.Catch.Pure
 
 -- | Struture representing a feed
 data Feed = Feed
-          { fdName :: Text      -- ^ The name of the feed
-          , fdTags :: [Text]    -- ^ The tags of the feed
-          , fdUrl  :: Provider  -- ^ The provider of the feed (used to identify the feed)
+          { fdName   :: Text     -- ^ The name of the feed
+          , fdTags   :: [Text]   -- ^ The tags of the feed
+          , fdUrl    :: Text     -- ^ The url of the website of the feed
+          , fdRssUrl :: Provider -- ^ The provider of the feed (used to identify the feed)
           } deriving (Show,Generic)
 
 
 -- | Structure representing an item
 data Item = Item
-          { itName    :: Text       -- ^ The name of the item
-          , itFlags   :: [Char]     -- ^ The flags [a-zA-Z] of the item
-          , itUrl     :: Text       -- ^ The url of the item
-          , itID      :: Integer    -- ^ The ID of the item in the database
-          , itGUID    :: Maybe Text -- ^ The GUID of the item
-          , itAuthor  :: Text       -- ^ The author of the item
-          , itDate    :: UTCTime    -- ^ The time of the item
-          , itContent :: Text       -- ^ The full content of the item
-          , itUnread  :: Bool       -- ^ Weither the item has been read or not
+          { itName    :: Text    -- ^ The name of the item
+          , itFlags   :: [Char]  -- ^ The flags [a-zA-Z] of the item
+          , itUrl     :: Text    -- ^ The url of the item
+          , itID      :: Integer -- ^ The ID of the item in the database
+          , itGUID    :: Text    -- ^ The GUID of the item
+          , itAuthor  :: Text    -- ^ The author of the item
+          , itDate    :: UTCTime -- ^ The time of the item
+          , itContent :: Text    -- ^ The full content of the item
+          , itUnread  :: Bool    -- ^ Weither the item has been read or not
           } deriving (Show,Generic)
 
 convertFeed :: Provider -> Fd.Feed -> (Feed,[Item])
 convertFeed prv feed = (resultFeed, mapMaybe mkItem $ Q.getFeedItems feed)
- where resultFeed :: Feed
-       resultFeed = Feed (Q.getFeedTitle feed) [] prv
+ where url :: Text
+       url = maybe "" id $ Q.getFeedHome feed
+       resultFeed :: Feed
+       resultFeed = Feed (Q.getFeedTitle feed) [] url prv
        mkItem :: Fd.Item -> Maybe Item
        mkItem i = do
            title <- Q.getItemTitle i
@@ -88,7 +94,7 @@ convertFeed prv feed = (resultFeed, mapMaybe mkItem $ Q.getFeedItems feed)
                          []
                          link
                          0
-                         (if fst guid then Just (snd guid) else Nothing)
+                         (if fst guid then snd guid else link)
                          author
                          time
                          desc
@@ -107,16 +113,16 @@ data Provider = FromUrl Text            -- ^ URL from an RSS feed online
               | Generator Text          -- ^ A command which output generate a RSS value
               deriving (Generic,Show)
 
-readFeed' :: Provider -> IO (Either Text (Feed,[Item]))
-readFeed' prv =
-    let ExceptT result = readFeed prv :: ExceptT Text IO (Feed,[Item])
+readFeed :: Provider -> IO (Either Text (Feed,[Item]))
+readFeed prv =
+    let ExceptT result = readFeed' prv :: ExceptT Text IO (Feed,[Item])
      in result `catch` displayError
  where displayError :: HttpException -> IO (Either Text a)
        displayError err = return $ Left $ show err
 
-readFeed :: (MonadIO m, MonadError Text m)
-         => Provider -> m (Feed,[Item])
-readFeed prv = do
+readFeed' :: (MonadIO m, MonadError Text m, MonadCatch m)
+          => Provider -> m (Feed,[Item])
+readFeed' prv = do
     text <- readFeedText prv
     rss  <- liftMaybe err $ Imp.parseFeedSource $ UTF.toString text
     return $ convertFeed prv rss
@@ -125,7 +131,7 @@ readFeed prv = do
        liftMaybe :: MonadError Text m => Text -> Maybe a -> m a
        liftMaybe err = maybe (throwError err) return
 
-readFeedText :: (MonadIO m, MonadError Text m)
+readFeedText :: (MonadIO m, MonadError Text m, MonadCatch m)
              => Provider -> m ByteString
 readFeedText (FromUrl url) = downloadFile url
 
@@ -163,9 +169,17 @@ executeCommand cmd stdin = do
        readExitCode ExitSuccess     = 0
        readExitCode (ExitFailure n) = n
 
-downloadFile :: (MonadIO m, MonadError Text m)
+-- TODO pretty print http exception
+downloadFile :: forall m. (MonadIO m, MonadError Text m, MonadCatch m)
              => Text -> m ByteString
-downloadFile url = do
+downloadFile url = downloadFile' url `catch` handleHttpException
+ where handleHttpException :: HttpException -> m ByteString
+       handleHttpException e = throwError $ "HTTP error on \"" <> url <> "\" : "
+                            <> fromString (displayException e)
+
+downloadFile' :: (MonadIO m, MonadError Text m, MonadCatch m)
+              => Text -> m ByteString
+downloadFile' url = do
     man <- liftIO $ newManager tlsManagerSettings
     req' <- case parseRequest $ toString url of
               Nothing -> throwError $ "Couldn't parse url \"" <> url <> "\""
@@ -178,4 +192,33 @@ downloadFile url = do
        else throwError $ "Failed to download \"" <> url <> "\" : "
                       <> show (statusMessage status)
                       <> " (" <> show (statusCode status) <> ")"
+
+
+--  ____        _        _                    
+-- |  _ \  __ _| |_ __ _| |__   __ _ ___  ___ 
+-- | | | |/ _` | __/ _` | '_ \ / _` / __|/ _ \
+-- | |_| | (_| | || (_| | |_) | (_| \__ \  __/
+-- |____/ \__,_|\__\__,_|_.__/ \__,_|___/\___|
+--                                            
+
+-- | Create a textual identifier for a provider
+makeRssUrl :: Provider -> Text
+makeRssUrl (FromUrl url)       = url
+makeRssUrl (Generator cmd)     = "exec:" <> cmd
+makeRssUrl (Transform cmd prv) = "filter:" <> cmd <> ":" <> makeRssUrl prv
+
+-- | Convert a feed in a storable format
+makeFeedRow :: Feed -> DB.FeedRow
+makeFeedRow (Feed name tags url rss) = DB.FeedR (makeRssUrl rss) url name 0 False ""
+
+-- | Merge a feed into a FeedRow, returns nothing if the FeedRow is unchanged
+-- Assumes the RssUrl is the same
+mergeFeedIntoRow :: Feed -> DB.FeedRow -> Maybe DB.FeedRow
+mergeFeedIntoRow (Feed name tags url _) frow = undefined
+
+-- | Take a provider and see if it has a feed associated in the database, otherwise creates it
+getOrMakeStoredProvider :: DB.Database -> Feed -> IO DB.FeedRow
+getOrMakeStoredProvider db prv = undefined
+
+
 

@@ -16,8 +16,10 @@ have been caught and converted to a 'DBError'.
 -}
 
 module Database
-    ( -- * Opening and closing
-      openDatabase,   closeDatabase,   dbVersion
+    ( -- * Definitions
+      Database, ItemRow(..), FeedRow(..)
+      -- * Opening and closing
+    , openDatabase,   closeDatabase,   dbVersion
     , openDatabaseNT, closeDatabaseNT
       -- * Feeds
     , findFeed,   listFeeds,   updateFeed,   deleteFeed
